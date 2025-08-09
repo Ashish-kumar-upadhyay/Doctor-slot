@@ -64,11 +64,33 @@ const AppContextProvider = ({ children }) => {
       setLoading(true);
       clearError();
       const result = await signInWithEmailAndPassword(auth, email, password);
-      await setDoc(doc(db, "users", result.user.uid), { lastLogin: new Date() }, { merge: true });
+      
+      // Try to update user document, but don't fail if it doesn't work
+      try {
+        await setDoc(doc(db, "users", result.user.uid), { lastLogin: new Date() }, { merge: true });
+      } catch (dbError) {
+        console.warn("Could not update user document:", dbError);
+      }
+      
       return result.user;
     } catch (error) {
       console.error("Email sign in error:", error);
-      setError("Failed to sign in");
+      
+      // Handle specific Firebase error codes
+      let errorMessage = "Failed to sign in";
+      if (error.code === "auth/invalid-credential") {
+        errorMessage = "Invalid email or password. Please check your credentials and try again.";
+      } else if (error.code === "auth/user-not-found") {
+        errorMessage = "No account found with this email. Please sign up first.";
+      } else if (error.code === "auth/wrong-password") {
+        errorMessage = "Incorrect password. Please try again.";
+      } else if (error.code === "auth/too-many-requests") {
+        errorMessage = "Too many failed attempts. Please try again later.";
+      } else if (error.code === "auth/network-request-failed") {
+        errorMessage = "Network error. Please check your internet connection.";
+      }
+      
+      setError(errorMessage);
       throw error;
     } finally {
       setLoading(false);
@@ -86,26 +108,38 @@ const AppContextProvider = ({ children }) => {
       setLoading(true);
       clearError();
       const result = await createUserWithEmailAndPassword(auth, email, password);
-      await setDoc(doc(db, "users", result.user.uid), {
-        email: result.user.email,
-        createdAt: new Date(),
-        lastLogin: new Date(),
-        role: "patient",
-        displayName: email.split("@")[0],
-      });
+      
+      // Try to create user document, but don't fail if it doesn't work
+      try {
+        await setDoc(doc(db, "users", result.user.uid), {
+          email: result.user.email,
+          createdAt: new Date(),
+          lastLogin: new Date(),
+          role: "patient",
+          displayName: email.split("@")[0],
+        });
+      } catch (dbError) {
+        console.warn("Could not create user document:", dbError);
+      }
+      
       return result.user;
     } catch (error) {
       console.error("Email sign up error:", error);
       
       // Handle specific Firebase error codes
+      let errorMessage = "Failed to create account";
       if (error.code === "auth/email-already-in-use") {
-        const errorMessage = "This email is already registered. Please use a different email or sign in instead.";
-        setError(errorMessage);
-        throw new Error(errorMessage);
-      } else {
-        setError("Failed to create account");
-        throw error;
+        errorMessage = "This email is already registered. Please use a different email or sign in instead.";
+      } else if (error.code === "auth/weak-password") {
+        errorMessage = "Password is too weak. Please use at least 6 characters.";
+      } else if (error.code === "auth/invalid-email") {
+        errorMessage = "Invalid email address. Please enter a valid email.";
+      } else if (error.code === "auth/network-request-failed") {
+        errorMessage = "Network error. Please check your internet connection.";
       }
+      
+      setError(errorMessage);
+      throw new Error(errorMessage);
     } finally {
       setLoading(false);
     }
